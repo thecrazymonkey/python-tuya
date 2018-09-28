@@ -29,7 +29,7 @@ except ImportError:
 
 log = logging.getLogger(__name__)
 logging.basicConfig()  # TODO include function name/line numbers in log
-#log.setLevel(level=logging.DEBUG)  # Debug hack!
+log.setLevel(level=logging.DEBUG)  # Debug hack!
 
 log.info('Python %s on %s', sys.version, sys.platform)
 if Crypto is None:
@@ -40,6 +40,7 @@ else:
     log.info('Using PyCrypto from %r', Crypto.__file__)
 
 SET = 'set'
+RESOLVE_PORT=6666
 
 PROTOCOL_VERSION_BYTES = b'3.1'
 
@@ -124,8 +125,8 @@ payload_dict = {
   }
 }
 
-class XenonDevice(object):
-    def __init__(self, dev_id, address, local_key=None, dev_type=None, connection_timeout=10):
+class TuyaDevice(object):
+    def __init__(self, dev_id, local_key, address=None, dev_type=None, connection_timeout=10):
         """
         Represents a Tuya device.
         
@@ -146,7 +147,7 @@ class XenonDevice(object):
         self.local_key = local_key.encode('latin1')
         self.dev_type = dev_type
         self.connection_timeout = connection_timeout
-
+        self.version = PROTOCOL_VERSION_BYTES
         self.port = 6668  # default - do not expect caller to pass in
 
         self.s = None # persistent socket
@@ -158,6 +159,28 @@ class XenonDevice(object):
         """ close the connection """
         self.s.close()
         self.s = None
+
+    def _resolveId(self):
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        try:
+            sock.bind("", RESOLVE_PORT)
+        except:
+            pass
+        data, addr = sock.recvfrom(2048)
+        (error,result) = self._extract_payload(data)
+        if(error == False):
+            log.debug('Resolve string=%s', result)
+            thisId = data.gwId
+            if (self.id == thisId):
+                # Add IP
+                self.ip = addr
+                # Change product key if neccessary
+                self.local_key = data.productKey
+
+                # Change protocol version if necessary
+                self.version = data.version
+        sock.close()
+
 
     def _send_receive(self, payload):
         """
@@ -176,28 +199,12 @@ class XenonDevice(object):
             except:
                 pass
                 
-        cpt_connect=0   
-        while(cpt_connect<10): # guess 10 is enough
-            try:
-                self.s.send(payload)
-                data = self.s.recv(4096)
-                cpt_connect=10
-            except (ConnectionResetError, ConnectionRefusedError, BrokenPipeError) as e:
-                cpt_connect = cpt_connect+1
-                if(cpt_connect==10):
-                    raise e
-                self.s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                self.s.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
-                self.s.settimeout(self.connection_timeout)
-                self.s.connect((self.address, self.port))
-            except socket.timeout as e:
-                cpt_connect = cpt_connect+1
-                if(cpt_connect==2):#stop after the first retry to avoid to long blocking time 
-                    raise e
-                self.s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                self.s.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
-                self.s.settimeout(self.connection_timeout)
-                self.s.connect((self.address, self.port))
+        try:
+            self.s.send(payload)
+            data = self.s.recv(4096)
+        except (ConnectionResetError, ConnectionRefusedError, BrokenPipeError) as e:
+            log.error('Send/receive error=%s', e)
+            raise e
             
         return data 
         
@@ -276,11 +283,7 @@ class XenonDevice(object):
         #print('full buffer(%d) %r' % (len(buffer), buffer))
         return buffer
     
-class Device(XenonDevice):
-    def __init__(self, dev_id, address, local_key=None, dev_type=None):
-        super(Device, self).__init__(dev_id, address, local_key, dev_type)
-    
-    def extract_payload(self,data):
+    def _extract_payload(self,data):
         """ Return the dps status in json format in a tuple (bool,json)
             if(bool): an error occur and the json is not relevant
             else: no error detected and the status is in json format
@@ -333,7 +336,7 @@ class Device(XenonDevice):
         data = self._send_receive(payload)
         log.debug('status received data=%r', data)
 
-        (error,result) = self.extract_payload(data)
+        (error,result) = self._extract_payload(data)
         if(error):
             if(retry<=10):#10 retry should be enough (observed only 1 retry)
                 return self.status(retry+1)
@@ -375,6 +378,10 @@ class Device(XenonDevice):
         """Turn the device off"""
         return self.set_status(False, switch)
 
+    def resolveId(self):
+        """Resolve device IP"""
+        return self._resolveId()
+
     def set_timer(self, num_secs):
         """
         Set a timer.
@@ -396,247 +403,3 @@ class Device(XenonDevice):
         data = self._send_receive(payload)
         log.debug('set_timer received data=%r', data)
         return data
-
-class OutletDevice(Device):
-    def __init__(self, dev_id, address, local_key=None):
-        dev_type = 'device'
-        super(OutletDevice, self).__init__(dev_id, address, local_key, dev_type)
-
-class BulbDevice(Device):
-    DPS_INDEX_ON           = '1'
-    DPS_INDEX_MODE         = '2'
-    DPS_INDEX_BRIGHTNESS   = '3'
-    DPS_INDEX_COLOURTEMP   = '4'
-    DPS_INDEX_COLOUR       = '5'
-    DPS_INDEX_COLOUR_SCENE = '6'
-
-    DPS                   = 'dps'
-    DPS_MODE_COLOUR       = 'colour'
-    DPS_MODE_COLOUR_SCENE = 'scene'
-    DPS_MODE_WHITE        = 'white'
-
-    DPS_2_STATE = {
-                '1':'is_on',
-                '2':'mode',
-                '3':'brightness',
-                '4':'colourtemp',
-                '5':'colour',
-                '6':'colour_scene'
-                }
-
-    def __init__(self, dev_id, address, local_key=None):
-        dev_type = 'device'
-        super(BulbDevice, self).__init__(dev_id, address, local_key, dev_type)
-
-    @staticmethod
-    def _rgb_to_hexvalue(r, g, b):
-        """
-        Convert an RGB value to the hex representation expected by tuya.
-        
-        Index '5' (DPS_INDEX_COLOUR) is assumed to be in the format:
-        rrggbb0hhhssvv
-        
-        While r, g and b are just hexadecimal values of the corresponding
-        Red, Green and Blue values, the h, s and v values (which are values
-        between 0 and 1) are scaled to 360 (h) and 255 (s and v) respectively.
-        
-        Args:
-            r(int): Value for the colour red as int from 0-255.
-            g(int): Value for the colour green as int from 0-255.
-            b(int): Value for the colour blue as int from 0-255.
-        """
-        rgb = [r,g,b]
-        hsv = colorsys.rgb_to_hsv(rgb[0]/255, rgb[1]/255, rgb[2]/255)
-
-        hexvalue = ""
-        for value in rgb:
-            temp = str(hex(int(value))).replace("0x","")
-            if len(temp) == 1:
-                temp = "0" + temp
-            hexvalue = hexvalue + temp
-
-        hsvarray = [int(hsv[0] * 360), int(hsv[1] * 255), int(hsv[2] * 255)]
-        hexvalue_hsv = ""
-        for value in hsvarray:
-            temp = str(hex(int(value))).replace("0x","")
-            if len(temp) == 1:
-                temp = "0" + temp
-            hexvalue_hsv = hexvalue_hsv + temp
-        if len(hexvalue_hsv) == 7:
-            hexvalue = hexvalue + "0" + hexvalue_hsv
-        else:
-            hexvalue = hexvalue + "00" + hexvalue_hsv
-
-        return hexvalue
-
-    @staticmethod
-    def _hexvalue_to_rgb(hexvalue):
-        """
-        Converts the hexvalue used by tuya for colour representation into
-        an RGB value.
-        
-        Args:
-            hexvalue(string): The hex representation generated by BulbDevice._rgb_to_hexvalue()
-        """
-        r = int(hexvalue[0:2], 16)
-        g = int(hexvalue[2:4], 16)
-        b = int(hexvalue[4:6], 16)
-
-        return (r, g, b)
-
-    @staticmethod
-    def _hexvalue_to_hsv(hexvalue):
-        """
-        Converts the hexvalue used by tuya for colour representation into
-        an HSV value.
-        
-        Args:
-            hexvalue(string): The hex representation generated by BulbDevice._rgb_to_hexvalue()
-        """
-        h = int(hexvalue[7:10], 16) / 360
-        s = int(hexvalue[10:12], 16) / 255
-        v = int(hexvalue[12:14], 16) / 255
-
-        return (h, s, v)
-
-    def set_colour(self, r, g, b):
-        """
-        Set colour of an rgb bulb.
-
-        Args:
-            r(int): Value for the colour red as int from 0-255.
-            g(int): Value for the colour green as int from 0-255.
-            b(int): Value for the colour blue as int from 0-255.
-        """
-        if not 0 <= r <= 255:
-            raise ValueError("The value for red needs to be between 0 and 255.")
-        if not 0 <= g <= 255:
-            raise ValueError("The value for green needs to be between 0 and 255.")
-        if not 0 <= b <= 255:
-            raise ValueError("The value for blue needs to be between 0 and 255.")
-
-        #print(BulbDevice)
-        hexvalue = BulbDevice._rgb_to_hexvalue(r, g, b)
-
-        payload = self.generate_payload(SET, {
-            self.DPS_INDEX_MODE: self.DPS_MODE_COLOUR,
-            self.DPS_INDEX_COLOUR: hexvalue})
-        data = self._send_receive(payload)
-        return data
-        
-    def set_colour_scene(self, r, g, b):
-        """
-        Set colour scene of an rgb bulb.
-
-        Args:
-            r(int): Value for the colour red as int from 0-255.
-            g(int): Value for the colour green as int from 0-255.
-            b(int): Value for the colour blue as int from 0-255.
-        """
-        if not 0 <= r <= 255:
-            raise ValueError("The value for red needs to be between 0 and 255.")
-        if not 0 <= g <= 255:
-            raise ValueError("The value for green needs to be between 0 and 255.")
-        if not 0 <= b <= 255:
-            raise ValueError("The value for blue needs to be between 0 and 255.")
-
-        #print(BulbDevice)
-        hexvalue = BulbDevice._rgb_to_hexvalue(r, g, b)
-
-        payload = self.generate_payload(SET, {
-            self.DPS_INDEX_MODE: self.DPS_MODE_COLOUR_SCENE,
-            self.DPS_INDEX_COLOUR_SCENE: hexvalue})
-        data = self._send_receive(payload)
-        return data
-        
-    def set_white(self, brightness, colourtemp=None):
-        """
-        Set white coloured theme of an rgb bulb.
-
-        Args:
-            brightness(int): Value for the brightness (25-255).
-            colourtemp(int): Value for the colour temperature (0-255).
-        """
-        if not 25 <= brightness <= 255:
-            raise ValueError("The brightness needs to be between 25 and 255.")
-        if not colourtemp==None:
-            if not 0 <= colourtemp <= 255:
-                raise ValueError("The colour temperature needs to be between 0 and 255.")
-
-        data_payload = {
-            self.DPS_INDEX_MODE: self.DPS_MODE_WHITE,
-            self.DPS_INDEX_BRIGHTNESS: brightness}
-        
-        if not colourtemp==None:
-            data_payload[self.DPS_INDEX_COLOURTEMP]=colourtemp
-            
-        payload = self.generate_payload(SET, data_payload)
-
-        data = self._send_receive(payload)
-        return data
-
-    def set_brightness(self, brightness):
-        """
-        Set the brightness value of an rgb bulb.
-
-        Args:
-            brightness(int): Value for the brightness (25-255).
-        """
-        if not 25 <= brightness <= 255:
-            raise ValueError("The brightness needs to be between 25 and 255.")
-
-        payload = self.generate_payload(SET, {self.DPS_INDEX_BRIGHTNESS: brightness})
-        data = self._send_receive(payload)
-        return data
-
-    def set_colourtemp(self, colourtemp):
-        """
-        Set the colour temperature of an rgb bulb.
-
-        Args:
-            colourtemp(int): Value for the colour temperature (0-255).
-        """
-        if not 0 <= colourtemp <= 255:
-            raise ValueError("The colour temperature needs to be between 0 and 255.")
-
-        payload = self.generate_payload(SET, {self.DPS_INDEX_COLOURTEMP: colourtemp})
-        data = self._send_receive(payload)
-        return data
-
-    def brightness(self):
-        """Return brightness value"""
-        return self.status()[self.DPS][self.DPS_INDEX_BRIGHTNESS]
-
-    def colourtemp(self):
-        """Return colour temperature"""
-        return self.status()[self.DPS][self.DPS_INDEX_COLOURTEMP]
-
-    def colour_rgb(self):
-        """Return colour as RGB value"""
-        hexvalue = self.status()[self.DPS][self.DPS_INDEX_COLOUR]
-        return BulbDevice._hexvalue_to_rgb(hexvalue)
-        
-    def colour_rgb_scene(self):
-        """Return colour scene as RGB value"""
-        hexvalue = self.status()[self.DPS][self.DPS_INDEX_COLOUR_SCENE]
-        return BulbDevice._hexvalue_to_rgb(hexvalue)
-
-    def colour_hsv(self):
-        """Return colour as HSV value"""
-        hexvalue = self.status()[self.DPS][self.DPS_INDEX_COLOUR]
-        return BulbDevice._hexvalue_to_hsv(hexvalue)
-
-    def colour_hsv_scene(self):
-        """Return colour scene as HSV value"""
-        hexvalue = self.status()[self.DPS][self.DPS_INDEX_COLOUR_SCENE]
-        return BulbDevice._hexvalue_to_hsv(hexvalue)
-        
-    def state(self):
-        status = self.status()
-        state = {}
-
-        for key in status[self.DPS].keys():
-            if(int(key)<=6):
-                state[self.DPS_2_STATE[key]]=status[self.DPS][key]
-
-        return state

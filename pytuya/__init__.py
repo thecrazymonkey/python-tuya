@@ -207,7 +207,7 @@ class TuyaDevice(object):
                 self.s.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
                 self.s.settimeout(self.connection_timeout)
                 try:
-                    log.debug('Connecting to = %s:%i', self.address, self.port)
+                    log.debug('Attempt(%d);Connecting to = %s:%i', i, self.address, self.port)
                     self.s.connect((self.address, self.port))
                     try:
                         log.debug('Sending :  %s', payload)
@@ -310,7 +310,7 @@ class TuyaDevice(object):
         """ 
         # Check for length
         if (len(data) < 16):
-            log.debug('Packet too small. Length: %d', len(data));
+            log.debug('Packet too small. Length: %d', len(data))
             return True
 
         if (data.startswith(b'\x00\x00U\xaa') == False):
@@ -324,7 +324,7 @@ class TuyaDevice(object):
         
         # Check for payload
         if (len(data) - 8 < payloadSize):
-            log.debug('Packet missing payload. %i;%i', len(data), payloadSize);
+            log.debug('Packet missing payload. %i;%i', len(data), payloadSize)
             return True
         
         # extract payload without prefix, suffix, CRC

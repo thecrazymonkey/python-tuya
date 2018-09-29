@@ -11,7 +11,7 @@
 
 import base64
 from hashlib import md5
-import simplejson as json
+import json
 import logging
 import socket
 import sys
@@ -30,7 +30,7 @@ except ImportError:
 
 log = logging.getLogger(__name__)
 logging.basicConfig()  # TODO include function name/line numbers in log
-log.setLevel(level=logging.DEBUG)  # Debug hack!
+#log.setLevel(level=logging.DEBUG)  # Debug hack!
 
 log.info('Python %s on %s', sys.version, sys.platform)
 if Crypto is None:
@@ -200,9 +200,11 @@ class TuyaDevice(object):
         Args:
             payload(bytes): Data to send.
         """
+        if (self.address == None):
+            self._resolveId()
         data = None
         for i in range(4):       
-            if(self.s == None):
+            if(self.s == None): # will leave for the moment to check if its worth doing switch invoked statu updates
                 self.s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                 self.s.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
                 self.s.settimeout(self.connection_timeout)
@@ -217,6 +219,7 @@ class TuyaDevice(object):
                         break
                     except (socket.error) as e:
                         log.error('Send/receive error=%s', e)
+                        self.s = None
                     except (socket.timeout) as e:
                         log.error('Socket timeout=%s', e)
                         self.disconnect() 
@@ -405,3 +408,8 @@ class TuyaDevice(object):
         data = self._send_receive(payload)
         log.debug('set_timer received data=%r', data)
         return data
+
+class OutletDevice(TuyaDevice):
+    def __init__(self, dev_id, local_key, address=None):
+        dev_type = 'device'
+        super(OutletDevice, self).__init__(dev_id, local_key, address, dev_type)

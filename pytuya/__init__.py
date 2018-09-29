@@ -151,16 +151,10 @@ class TuyaDevice(object):
         self.version = PROTOCOL_VERSION_BYTES
         self.port = 6668  # default - do not expect caller to pass in
         self.uid = ''
-        self.s = None # persistent socket
 
     def __repr__(self):
         return '%r' % ((self.id, self.address),)  # FIXME can do better than this
 
-    def disconnect(self):
-        """ close the connection """
-        self.s.shutdown(socket.SHUT_RDWR)
-        self.s.close()
-        self.s = None
 
     def _resolveId(self):
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -204,28 +198,19 @@ class TuyaDevice(object):
             self._resolveId()
         data = None
         for i in range(4):       
-            if(self.s == None): # will leave for the moment to check if its worth doing switch invoked statu updates
-                self.s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                self.s.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
-                self.s.settimeout(self.connection_timeout)
-                try:
-                    log.debug('Attempt(%d);Connecting to = %s:%i', i, self.address, self.port)
-                    self.s.connect((self.address, self.port))
-                    try:
-                        log.debug('Sending :  %s', payload)
-                        self.s.send(payload)
-                        data = self.s.recv(1024)
-                        self.disconnect() 
-                        break
-                    except (socket.error) as e:
-                        log.error('Send/receive error=%s', e)
-                        self.s = None
-                    except (socket.timeout) as e:
-                        log.error('Socket timeout=%s', e)
-                        self.disconnect() 
-                except (ConnectionResetError, ConnectionRefusedError, BrokenPipeError) as e:
-                    log.error('Connect error=%s', e)
-                    self.disconnect() 
+            s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            s.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+            s.settimeout(self.connection_timeout)
+            try:
+                log.debug('Attempt(%d);Connecting to = %s:%i', i, self.address, self.port)
+                s.connect((self.address, self.port))
+                log.debug('Sending :  %s', payload)
+                s.send(payload)
+                data = s.recv(1024)
+            finally:
+                s.close() 
+            if (data != None):
+                break
         return data 
         
     def generate_payload(self, command, data=None):

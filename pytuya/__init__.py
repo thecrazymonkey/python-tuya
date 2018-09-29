@@ -150,7 +150,7 @@ class TuyaDevice(object):
         self.connection_timeout = connection_timeout
         self.version = PROTOCOL_VERSION_BYTES
         self.port = 6668  # default - do not expect caller to pass in
-
+        self.uid = ''
         self.s = None # persistent socket
 
     def __repr__(self):
@@ -158,6 +158,7 @@ class TuyaDevice(object):
 
     def disconnect(self):
         """ close the connection """
+        self.s.shutdown(socket.SHUT_RDWR)
         self.s.close()
         self.s = None
 
@@ -182,9 +183,9 @@ class TuyaDevice(object):
             thisId = result['gwId']
             if (self.id == thisId):
                 # Add IP
-                self.ip = result['ip']
+                self.address = result['ip']
                 # Change product key if neccessary
-                self.local_key = result['productKey']
+                self.productKey = result['productKey'].encode('latin1')
 
                 # Change protocol version if necessary
                 self.version = result['version']
@@ -199,23 +200,27 @@ class TuyaDevice(object):
         Args:
             payload(bytes): Data to send.
         """
-               
-        if(self.s == None):
-            self.s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            self.s.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
-            self.s.settimeout(self.connection_timeout)
-            try:
-                self.s.connect((self.address, self.port))
-            except:
-                pass
-                
-        try:
-            self.s.send(payload)
-            data = self.s.recv(4096)
-        except (ConnectionResetError, ConnectionRefusedError, BrokenPipeError) as e:
-            log.error('Send/receive error=%s', e)
-            raise e
-            
+        data = None
+        for i in range(1,4):       
+            if(self.s == None):
+                self.s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                self.s.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+                self.s.settimeout(self.connection_timeout)
+                try:
+                    log.debug('Connecting to = %s:%i', self.address, self.port)
+                    self.s.connect((self.address, self.port))
+                    try:
+                        log.debug('Sending :  %s', payload)
+                        self.s.send(payload)
+                        data = self.s.recv(1024)
+                        self.disconnect() 
+                        break
+                    except (ConnectionResetError, ConnectionRefusedError, BrokenPipeError, socket.timeout) as e:
+                        log.error('Send/receive error=%s', e)
+                        self.disconnect() 
+                except (ConnectionResetError, ConnectionRefusedError, BrokenPipeError) as e:
+                    log.error('Connect error=%s', e)
+                    self.disconnect() 
         return data 
         
     def generate_payload(self, command, data=None):
@@ -235,7 +240,7 @@ class TuyaDevice(object):
         if 'devId' in json_data:
             json_data['devId'] = self.id
         if 'uid' in json_data:
-            json_data['uid'] = self.id  # still use id, no seperate uid
+            json_data['uid'] = self.uid  
         if 't' in json_data:
             json_data['t'] = str(int(time.time()))
 
@@ -304,7 +309,7 @@ class TuyaDevice(object):
         # Check for length
         if (len(data) < 16):
             log.debug('Packet too small. Length: %d', len(data));
-            return False,none
+            return True
 
         if (data.startswith(b'\x00\x00U\xaa') == False):
             raise ValueError('Magic prefix mismatch : %s',data)
@@ -328,7 +333,7 @@ class TuyaDevice(object):
                                                               
 
     
-    def status(self,retry=0):
+    def status(self):
         log.debug('status() entry')
         payload = self.generate_payload('status')
         data = self._send_receive(payload)
@@ -336,10 +341,7 @@ class TuyaDevice(object):
 
         (error,result) = self._extract_payload(data)
         if(error):
-            if(retry<=10):#10 retry should be enough (observed only 1 retry)
-                return self.status(retry+1)
-            else:
-                raise TypeError('Unexpected status() payload=%r', data)
+            raise TypeError('Unexpected status() payload=%r', data)
         else:
             return result
     

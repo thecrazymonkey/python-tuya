@@ -11,12 +11,13 @@
 
 import base64
 from hashlib import md5
-import json
+import simplejson as json
 import logging
 import socket
 import sys
 import time
 import colorsys
+import struct
 
 try:
     #raise ImportError
@@ -162,24 +163,33 @@ class TuyaDevice(object):
 
     def _resolveId(self):
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        sock.settimeout(10)
         try:
-            sock.bind("", RESOLVE_PORT)
+            log.info('Binding to local port %d', RESOLVE_PORT)
+            sock.bind(('<broadcast>', RESOLVE_PORT))
         except:
             pass
-        data, addr = sock.recvfrom(2048)
-        (error,result) = self._extract_payload(data)
+        try:
+            data, addr = sock.recvfrom(2048)
+            log.debug('Received=%s:%s', data, addr)
+            (error,result) = self._extract_payload(data)
+        except socket.timeout:
+            log.error('No data received during resolveId call')
+            error = True
+
         if(error == False):
             log.debug('Resolve string=%s', result)
-            thisId = data.gwId
+            thisId = result['gwId']
             if (self.id == thisId):
                 # Add IP
-                self.ip = addr
+                self.ip = result['ip']
                 # Change product key if neccessary
-                self.local_key = data.productKey
+                self.local_key = result['productKey']
 
                 # Change protocol version if necessary
-                self.version = data.version
+                self.version = result['version']
         sock.close()
+        return error
 
 
     def _send_receive(self, payload):
@@ -291,44 +301,32 @@ class TuyaDevice(object):
         Args:
             data: The data received by _send_receive function       
         """ 
+        # Check for length
+        if (len(data) < 16):
+            log.debug('Packet too small. Length: %d', len(data));
+            return False,none
 
-        #if non encrypted data
-        start=data.find(b'{"devId')
-        if(start!=-1):
-            result = data[start:] #in 2 steps to deal with the case where '}}' is present before {"devId'
-            end=result.find(b'}}')
-            if(end==-1):
-                return (True,data)
-            else:
-                end=end+2
-            result = result[:end]
-            
-            #log.debug('result=%r', result)
-            if not isinstance(result, str):
-                result = result.decode()
-            result = json.loads(result)
-            return (False,result)
+        if (data.startswith(b'\x00\x00U\xaa') == False):
+            raise ValueError('Magic prefix mismatch : %s',data)
+
+        if (data.endswith(b'\x00\x00\xaaU') == False):
+            raise ValueError('Magic suffix mismatch : %s',data)
+
+        payloadSize = struct.unpack_from('>I',data,12)[0]
+        log.debug('payloadSize = %i', payloadSize)
         
-        #encrypted data: incomplete dps {'devId': 'NUM', 'dps': {'1': bool}, 't': NUM, 's': NUM}
-        return (True,data)
+        # Check for payload
+        if (len(data) - 8 < payloadSize):
+            log.debug('Packet missing payload. %i;%i', len(data), payloadSize);
+            return True
         
-        #start=data.find(PROTOCOL_VERSION_BYTES)
-        #if(start == -1): #if not found
-        #    if(len(data)<=28):
-        #        return (True,data) #no information from set command (data to small)
-        #    else:
-        #        log.debug('Unexpected status() payload=%r', data)
-        #        return (True,data)
-        #else:
-        #    result=data[start:-8]
-        #    result = result[len(PROTOCOL_VERSION_BYTES):]  # remove version header
-        #    result = result[16:]  # remove (what I'm guessing, but not confirmed is) 16-bytes of MD5 hexdigest of payload
-        #    cipher = AESCipher(self.local_key)
-        #    result = cipher.decrypt(result)
-        #    if not isinstance(result, str):
-        #        result = result.decode()
-        #    result = json.loads(result)
-        #    return (False,result)
+        # extract payload without prefix, suffix, CRC
+        payload = data[20:20+payloadSize-12]
+        log.debug('payload = %s', payload)
+        payload = json.loads(payload.decode())
+        return (False,payload) 
+                                                              
+
     
     def status(self,retry=0):
         log.debug('status() entry')

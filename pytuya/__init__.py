@@ -201,7 +201,7 @@ class TuyaDevice(object):
             payload(bytes): Data to send.
         """
         data = None
-        for i in range(1,4):       
+        for i in range(4):       
             if(self.s == None):
                 self.s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                 self.s.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
@@ -215,8 +215,10 @@ class TuyaDevice(object):
                         data = self.s.recv(1024)
                         self.disconnect() 
                         break
-                    except (ConnectionResetError, ConnectionRefusedError, BrokenPipeError, socket.timeout) as e:
+                    except (socket.error) as e:
                         log.error('Send/receive error=%s', e)
+                    except (socket.timeout) as e:
+                        log.error('Socket timeout=%s', e)
                         self.disconnect() 
                 except (ConnectionResetError, ConnectionRefusedError, BrokenPipeError) as e:
                     log.error('Connect error=%s', e)

@@ -1,5 +1,5 @@
 from distutils.core import setup
 setup(name='pytuya',
-      version='1.0',
+      version='master',
       py_modules=['pytuya'],
       )

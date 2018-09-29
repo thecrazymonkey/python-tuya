@@ -208,6 +208,7 @@ class TuyaDevice(object):
                 s.send(payload)
                 data = s.recv(1024)
             except (ConnectionResetError) as e:
+                log.error('Send/receive exeption :  %s', e)
                 data = None
             finally:
                 s.close() 

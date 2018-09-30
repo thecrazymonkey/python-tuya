@@ -29,7 +29,7 @@ except ImportError:
 
 
 log = logging.getLogger(__name__)
-logging.basicConfig()  # TODO include function name/line numbers in log
+#logging.basicConfig()  # TODO include function name/line numbers in log
 #log.setLevel(level=logging.DEBUG)  # Debug hack!
 
 log.info('Python %s on %s', sys.version, sys.platform)

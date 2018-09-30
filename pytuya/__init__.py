@@ -320,8 +320,8 @@ class TuyaDevice(object):
         
         # extract payload without prefix, suffix, CRC
         payload = data[20:20+payloadSize-12]
-        log.warning('payload = %s', payload)
-        payload = json.loads(payload.decode())
+        log.debug('payload = %s', payload)
+        payload = json.loads(payload.decode().lstrip('\x00'))
         return (False,payload) 
                                                               
 

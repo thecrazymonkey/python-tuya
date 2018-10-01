@@ -202,7 +202,7 @@ class TuyaDevice(object):
             s.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
             s.settimeout(self.connection_timeout)
             try:
-                log.debug('Attempt(%d);Connecting to = %s:%i', i, self.address, self.port)
+                log.debug('Attempt(%d);Timeout(%d);Connecting to = %s:%i', i, self.connection_timeout, self.address, self.port)
                 s.connect((self.address, self.port))
                 log.debug('Sending :  %s', payload)
                 s.send(payload)

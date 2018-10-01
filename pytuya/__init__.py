@@ -127,7 +127,7 @@ payload_dict = {
 }
 
 class TuyaDevice(object):
-    def __init__(self, dev_id, local_key, address=None, dev_type=None, connection_timeout=10):
+    def __init__(self, dev_id, local_key, address=None, dev_type=None, connection_timeout=2):
         """
         Represents a Tuya device.
         
@@ -207,7 +207,7 @@ class TuyaDevice(object):
                 log.debug('Sending :  %s', payload)
                 s.send(payload)
                 data = s.recv(1024)
-            except (ConnectionResetError, ConnectionRefusedError) as e:
+            except (ConnectionResetError, ConnectionRefusedError, socket.timeout) as e:
                 log.error('Send/receive exeption :  %s', e)
                 data = None
             finally:

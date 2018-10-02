@@ -158,7 +158,7 @@ class TuyaDevice(object):
 
     def _resolveId(self):
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        sock.settimeout(10)
+        sock.settimeout(2)
         try:
             log.info('Binding to local port %d', RESOLVE_PORT)
             sock.bind(('<broadcast>', RESOLVE_PORT))

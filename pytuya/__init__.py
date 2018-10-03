@@ -339,6 +339,7 @@ class TuyaDevice(object):
             payload = json.loads(payload)
         except json.decoder.JSONDecodeError as e:
             log.error('JSON payload error. %s;%s', payload, e)
+        log.debug('JSON payload = %s', payload)
 
         return (False,payload) 
                                                               

@@ -305,12 +305,12 @@ class TuyaDevice(object):
         """ 
         # nothing received
         if (data == None):
-            return True
+            return (True, data)
 
         # Check for length
         if (len(data) < 16):
             log.debug('Packet too small. Length: %d', len(data))
-            return True
+            return (True, data)
 
         if (data.startswith(b'\x00\x00U\xaa') == False):
             raise ValueError('Magic prefix mismatch : %s',data)
@@ -324,7 +324,7 @@ class TuyaDevice(object):
         # Check for payload
         if (len(data) - 8 < payloadSize):
             log.debug('Packet missing payload. %i;%i', len(data), payloadSize)
-            return True
+            return (True, data)
         
         # extract payload without prefix, suffix, CRC
         payload = data[20:20+payloadSize-12]

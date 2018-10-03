@@ -331,6 +331,7 @@ class TuyaDevice(object):
             payload = payload[19:]
             self.cipher = AESCipher(self.local_key)
             payload = self.cipher.decrypt(payload)
+            log.debug('Decrypted payload = %s', payload)
             self.cipher = None
         else:
             payload = payload.decode().lstrip('\x00') 

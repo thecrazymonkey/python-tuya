@@ -164,25 +164,29 @@ class TuyaDevice(object):
             sock.bind(('<broadcast>', RESOLVE_PORT))
         except:
             pass
-        try:
-            data, addr = sock.recvfrom(2048)
-            log.debug('Received=%s:%s', data, addr)
-            (error,result) = self._extract_payload(data)
-        except socket.timeout:
-            log.error('No data received during resolveId call')
-            error = True
+        # get it to run for 5 seconds to allow all switches to report
+        t_end = time.time() + 5
+        while time.time() < t_end:
+            try:
+                data, addr = sock.recvfrom(2048)
+                log.debug('Received=%s:%s', data, addr)
+                (error,result) = self._extract_payload(data)
+            except socket.timeout:
+                log.error('No data received during resolveId call')
+                error = True
 
-        if(error == False):
-            log.debug('Resolve string=%s', result)
-            thisId = result['gwId']
-            if (self.id == thisId):
-                # Add IP
-                self.address = result['ip']
-                # Change product key if neccessary
-                self.productKey = result['productKey'].encode('latin1')
+            if(error == False):
+                log.debug('Resolve string=%s', result)
+                thisId = result['gwId']
+                if (self.id == thisId):
+                    # Add IP
+                    self.address = result['ip']
+                    # Change product key if neccessary
+                    self.productKey = result['productKey'].encode('latin1')
 
-                # Change protocol version if necessary
-                self.version = result['version']
+                    # Change protocol version if necessary
+                    self.version = result['version']
+                    break
         sock.close()
         return error
 

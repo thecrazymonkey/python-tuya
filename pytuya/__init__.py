@@ -325,7 +325,21 @@ class TuyaDevice(object):
         # extract payload without prefix, suffix, CRC
         payload = data[20:20+payloadSize-12]
         log.debug('payload = %s', payload)
-        payload = json.loads(payload.decode().lstrip('\x00'))
+        # encrypted payload comes with version first
+        if (data.startswith(PROTOCOL_VERSION_BYTES) == True):
+            # cut prefix and digest and decrypt
+            payload = payload[19:]
+            self.cipher = AESCipher(self.local_key)
+            payload = self.cipher.decrypt(payload)
+            self.cipher = None
+        else:
+            payload = payload.decode().lstrip('\x00') 
+
+        try:
+            payload = json.loads(payload)
+        except json.decoder.JSONDecodeError as e:
+            log.error('JSON payload error. %s;%s', payload, e)
+
         return (False,payload) 
                                                               
 

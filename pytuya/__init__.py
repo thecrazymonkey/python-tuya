@@ -326,7 +326,7 @@ class TuyaDevice(object):
         payload = data[20:20+payloadSize-12]
         log.debug('payload = %s', payload)
         # encrypted payload comes with version first
-        if (data.startswith(PROTOCOL_VERSION_BYTES) == True):
+        if (payload.startswith(PROTOCOL_VERSION_BYTES) == True):
             # cut prefix and digest and decrypt
             payload = payload[19:]
             self.cipher = AESCipher(self.local_key)

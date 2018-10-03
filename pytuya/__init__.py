@@ -303,6 +303,10 @@ class TuyaDevice(object):
         Args:
             data: The data received by _send_receive function       
         """ 
+        # nothing received
+        if (data == None):
+            return True
+
         # Check for length
         if (len(data) < 16):
             log.debug('Packet too small. Length: %d', len(data))
